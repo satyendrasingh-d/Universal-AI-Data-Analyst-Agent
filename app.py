@@ -301,16 +301,13 @@ elif page=="AI Analysis":
 
                     if charts:
                         for chart in charts:
-                            try:
-                                st.image(chart,use_container_width=True)
-                            except:
-                                st.write(chart)
+                            st.image(chart)
                     else:
-                        st.info("No charts generated.")
+                        st.warning("No charts")
 
-                    st.session_state["analysis_result"]=result
+                        st.session_state["analysis_result"]=result
 
-                except Exception as e:
+                    except Exception as e:
 
                     st.error(f"Analysis failed: {e}")    
         st.warning("Please upload a dataset first.")
