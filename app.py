@@ -200,7 +200,8 @@ elif page=="Visualization":
                 col=st.selectbox("Select Category Column",categorical_columns,key="pie")
                 st.write(df[col].value_counts())
             else:
-                st.warning("No categorical columns found.")elif page=="AI Analysis":
+                st.warning("No categorical columns found.")
+                elif page=="AI Analysis":
     st.header("🤖 AI Analysis")
     st.info("Part 2 me LangGraph + Groq Analysis connect karenge.")
 elif page=="Chat with Dataset":
