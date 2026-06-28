@@ -293,9 +293,18 @@ elif page=="AI Analysis":
                         result=state
 
                     st.success("Analysis Completed")
-
-                    st.subheader("Debug Output")
-                    st.json(result)
+                    st.subheader("Dataset Summary")
+                    summary=pd.DataFrame({
+                        "Property":["Rows","Columns","Missing Values","Duplicate Rows"],
+                        "Value":[df.shape[0],df.shape[1],df.isnull().sum().sum(),df.duplicated().sum()]})
+                    st.table(summary)
+                    st.subheader("Dataset Profile")
+                    profile=pd.DataFrame({
+                        "Column":df.columns,
+                        "Data Type":df.dtypes.astype(str),
+                        "Missing":df.isnull().sum().values,
+                        "Unique":df.nunique().values})
+                    st.dataframe(profile,use_container_width=True)
 
                     st.subheader("Dataset Profile")
                     st.write(result.get("profile",{}))
