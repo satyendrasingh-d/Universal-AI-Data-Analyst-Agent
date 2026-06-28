@@ -314,8 +314,7 @@ elif page=="AI Analysis":
 
                     st.error(f"Analysis failed: {e}")    
         st.warning("Please upload a dataset first.")
-    
-else:
+    else:
         if st.button("Run AI Analysis"):
             with st.spinner("Analyzing dataset..."):
                 try:
