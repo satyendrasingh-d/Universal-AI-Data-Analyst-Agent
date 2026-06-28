@@ -312,7 +312,7 @@ elif page=="AI Analysis":
 
                 except Exception as e:
 
-                    st.error(f"Analysis failed: {e}")    if df is None:
+                    st.error(f"Analysis failed: {e}")    
         st.warning("Please upload a dataset first.")
     else:
         if st.button("Run AI Analysis"):
