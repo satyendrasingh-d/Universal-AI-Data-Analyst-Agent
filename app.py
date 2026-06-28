@@ -145,9 +145,62 @@ elif page=="Profiling":
         st.subheader("Statistics")
         st.dataframe(df.describe(include="all"),use_container_width=True)
 elif page=="Visualization":
-    st.header("📉 Visualization")
-    st.info("Part 2 me Automatic Charts connect karenge.")
-elif page=="AI Analysis":
+    if df is None:
+        st.warning("Please upload a dataset first.")
+    else:
+        st.header("📉 Data Visualization")
+        numeric_columns=df.select_dtypes(include=np.number).columns.tolist()
+        categorical_columns=df.select_dtypes(include=["object","category"]).columns.tolist()
+
+        chart_type=st.selectbox(
+            "Select Chart",
+            ["Histogram","Line Chart","Bar Chart","Scatter Plot","Box Plot","Pie Chart"]
+        )
+
+        if chart_type=="Histogram":
+            if numeric_columns:
+                col=st.selectbox("Select Numeric Column",numeric_columns)
+                st.bar_chart(df[col].value_counts().sort_index())
+            else:
+                st.warning("No numeric columns found.")
+
+        elif chart_type=="Line Chart":
+            if numeric_columns:
+                col=st.selectbox("Select Numeric Column",numeric_columns,key="line")
+                st.line_chart(df[col])
+            else:
+                st.warning("No numeric columns found.")
+
+        elif chart_type=="Bar Chart":
+            if categorical_columns and numeric_columns:
+                x=st.selectbox("Category Column",categorical_columns)
+                y=st.selectbox("Value Column",numeric_columns)
+                chart_df=df.groupby(x)[y].sum()
+                st.bar_chart(chart_df)
+            else:
+                st.warning("Suitable columns not found.")
+
+        elif chart_type=="Scatter Plot":
+            if len(numeric_columns)>=2:
+                x=st.selectbox("X Axis",numeric_columns,key="x")
+                y=st.selectbox("Y Axis",numeric_columns,key="y")
+                st.scatter_chart(df[[x,y]])
+            else:
+                st.warning("At least two numeric columns are required.")
+
+        elif chart_type=="Box Plot":
+            if numeric_columns:
+                col=st.selectbox("Select Numeric Column",numeric_columns,key="box")
+                st.write(df[col].describe())
+            else:
+                st.warning("No numeric columns found.")
+
+        elif chart_type=="Pie Chart":
+            if categorical_columns:
+                col=st.selectbox("Select Category Column",categorical_columns,key="pie")
+                st.write(df[col].value_counts())
+            else:
+                st.warning("No categorical columns found.")elif page=="AI Analysis":
     st.header("🤖 AI Analysis")
     st.info("Part 2 me LangGraph + Groq Analysis connect karenge.")
 elif page=="Chat with Dataset":
