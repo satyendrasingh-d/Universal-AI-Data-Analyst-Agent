@@ -285,12 +285,20 @@ elif page=="AI Analysis":
                         "user_question":"Analyze this dataset."
                     }
 
-                    result=analysis_workflow.invoke(state)
+                    if "analysis_workflow" in globals():
+                        result=analysis_workflow.invoke(state)
+                    elif "agent" in globals():
+                        result=agent.analyze(state)
+                    else:
+                        result=state
 
-                    st.success("Analysis completed successfully.")
+                    st.success("Analysis Completed")
+
+                    st.subheader("Debug Output")
+                    st.json(result)
 
                     st.subheader("Dataset Profile")
-                    st.json(result.get("profile",{}))
+                    st.write(result.get("profile",{}))
 
                     st.subheader("AI Insights")
                     st.write(result.get("insight","No insights generated."))
@@ -301,59 +309,17 @@ elif page=="AI Analysis":
 
                     if charts:
                         for chart in charts:
-                            st.image(chart)
-                    else:
-                        st.warning("No charts")
-
-                        st.session_state["analysis_result"]=result
-
-                except Exception as e:
-
-                st.error(f"Analysis failed: {e}")    
-        st.warning("Please upload a dataset first.")
-    else:
-        if st.button("Run AI Analysis"):
-            with st.spinner("Analyzing dataset..."):
-                try:
-                    state={
-                        "dataframe":df,
-                        "profile":{},
-                        "charts":[],
-                        "query_plan":{},
-                        "query_result":"",
-                        "tool_decision":{},
-                        "insight":"",
-                        "answer":"",
-                        "errors":[],
-                        "memory":[],
-                        "user_question":"Analyze this dataset."
-                    }
-
-                    if "analysis_workflow" in globals():
-                        result=analysis_workflow.invoke(state)
-                        st.subheader("Debug Output")
-                        st.json(result)
-                    elif "agent" in globals():
-                        result=agent.analyze(state)
-                    else:
-                        result=state
-                    st.success("Analysis Completed")
-                    if "profile" in result:
-                        st.subheader("Dataset Profile")
-                        st.write(result["profile"])
-                    if "insight" in result:
-                        st.subheader("AI Insights")
-                        st.write(result["insight"])
-                    if "charts" in result:
-                        st.subheader("Generated Charts")
-                        for chart in result["charts"]:
                             try:
                                 st.image(chart,use_container_width=True)
-                            except:
+                            except Exception:
                                 st.write(chart)
+                    else:
+                        st.info("No charts generated.")
+
                     st.session_state["analysis_result"]=result
+
                 except Exception as e:
-                    st.error(str(e))
+                    st.error(f"Analysis failed: {e}")
 elif page=="Chat with Dataset":
     st.header("Chat with Dataset")
     if df is None:
