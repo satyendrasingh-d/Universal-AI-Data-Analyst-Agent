@@ -307,9 +307,9 @@ elif page=="AI Analysis":
 
                         st.session_state["analysis_result"]=result
 
-                    except Exception as e:
+                except Exception as e:
 
-                    st.error(f"Analysis failed: {e}")    
+                st.error(f"Analysis failed: {e}")    
         st.warning("Please upload a dataset first.")
     else:
         if st.button("Run AI Analysis"):
