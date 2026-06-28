@@ -129,8 +129,21 @@ elif page=="Dataset Preview":
         )
 # ---------------- Placeholder Pages ----------------
 elif page=="Profiling":
-    st.header("📈 Profiling")
-    st.info("Part 2 me AI Profiling connect karenge.")
+    if df is None:
+        st.warning("Please upload a dataset.")
+    else:
+        st.header("Dataset Profiling")
+        c1,c2,c3,c4=st.columns(4)
+        c1.metric("Rows",df.shape[0])
+        c2.metric("Columns",df.shape[1])
+        c3.metric("Missing",int(df.isnull().sum().sum()))
+        c4.metric("Duplicates",int(df.duplicated().sum()))
+        st.subheader("Data Types")
+        st.dataframe(pd.DataFrame({"Column":df.columns,"Type":df.dtypes.astype(str)}),use_container_width=True)
+        st.subheader("Missing Values")
+        st.dataframe(df.isnull().sum().reset_index().rename(columns={"index":"Column",0:"Missing"}),use_container_width=True)
+        st.subheader("Statistics")
+        st.dataframe(df.describe(include="all"),use_container_width=True)
 elif page=="Visualization":
     st.header("📉 Visualization")
     st.info("Part 2 me Automatic Charts connect karenge.")
