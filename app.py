@@ -257,8 +257,62 @@ elif page=="Visualization":
             st.line_chart(df[col])
 
 elif page=="AI Analysis":
-    st.header("AI Dataset Analysis")
+    st.header("🤖 AI Dataset Analysis")
+
     if df is None:
+        st.warning("Please upload a dataset first.")
+
+    else:
+        st.success("Dataset loaded successfully.")
+
+        if st.button("Run AI Analysis"):
+
+            with st.spinner("Analyzing dataset..."):
+
+                try:
+
+                    state={
+                        "dataframe":df,
+                        "profile":{},
+                        "charts":[],
+                        "query_plan":{},
+                        "query_result":"",
+                        "tool_decision":{},
+                        "insight":"",
+                        "answer":"",
+                        "errors":[],
+                        "memory":[],
+                        "user_question":"Analyze this dataset."
+                    }
+
+                    result=analysis_workflow.invoke(state)
+
+                    st.success("Analysis completed successfully.")
+
+                    st.subheader("Dataset Profile")
+                    st.json(result.get("profile",{}))
+
+                    st.subheader("AI Insights")
+                    st.write(result.get("insight","No insights generated."))
+
+                    st.subheader("Generated Charts")
+
+                    charts=result.get("charts",[])
+
+                    if charts:
+                        for chart in charts:
+                            try:
+                                st.image(chart,use_container_width=True)
+                            except:
+                                st.write(chart)
+                    else:
+                        st.info("No charts generated.")
+
+                    st.session_state["analysis_result"]=result
+
+                except Exception as e:
+
+                    st.error(f"Analysis failed: {e}")    if df is None:
         st.warning("Please upload a dataset first.")
     else:
         if st.button("Run AI Analysis"):
