@@ -280,6 +280,8 @@ elif page=="AI Analysis":
 
                     if "analysis_workflow" in globals():
                         result=analysis_workflow.invoke(state)
+                        st.subheader("Debug Output")
+                        st.json(result)
                     elif "agent" in globals():
                         result=agent.analyze(state)
                     else:
