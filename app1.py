@@ -9,61 +9,495 @@ from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 from abc import ABC, abstractmethod
 
-# 1. SETUP
+# Set API Key directly for testing
 os.environ["GROQ_API_KEY"] = "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"
-llm = ChatGroq(groq_api_key=os.environ["GROQ_API_KEY"], model_name="llama-3.3-70b-versatile", temperature=0)
 
-# 2. BACKEND AGENT LOGIC
+# Initialize LLM
+llm = ChatGroq(
+    groq_api_key=os.environ["GROQ_API_KEY"],
+    model_name="llama-3.3-70b-versatile",
+    temperature=0
+)
+
+# ==========================================
+# 1. AI AGENT BACKEND LOGIC (LANGGRAPH)
+# ==========================================
+
+# Define Unified Agent State
 class AgentState(TypedDict):
     dataframe: object
     profile: dict
     charts: List[Any]
+    query_plan: Dict[str, Any]
+    query_result: Any
     insight: str
     answer: str
+    errors: List[str]
+    memory: List[str]
     user_question: str
+    tool_decision: Dict[str, Any]
 
+# Dataset Profile Function
 def profile_dataset(df):
-    return {"Rows": df.shape[0], "Columns": df.shape[1], "Numeric Columns": list(df.select_dtypes(include=np.number).columns)}
+    profile = {}
+    profile["Rows"] = df.shape[0]
+    profile["Columns"] = df.shape[1]
+    profile["Column Names"] = list(df.columns)
+    profile["Data Types"] = df.dtypes.astype(str).to_dict()
+    profile["Missing Values"] = df.isnull().sum().to_dict()
+    profile["Duplicate Rows"] = int(df.duplicated().sum())
+    profile["Memory Usage (MB)"] = round(df.memory_usage(deep=True).sum() / 1024**2, 2)
+    profile["Numeric Columns"] = list(df.select_dtypes(include=np.number).columns)
+    profile["Categorical Columns"] = list(df.select_dtypes(include=["object","category"]).columns)
+    return profile
 
-def analysis_agent(state):
+# Base Tool Structure
+class BaseTool(ABC):
+    @property
+    @abstractmethod
+    def name(self): pass
+    @property
+    @abstractmethod
+    def description(self): pass
+    @abstractmethod
+    def execute(self, df, params): pass
+
+# Visualization Tools Classes
+class HistogramTool(BaseTool):
+    @property
+    def name(self): return "histogram"
+    @property
+    def description(self): return "Create histogram for numeric column"
+    def execute(self, df, params):
+        column = params["column"]
+        return px.histogram(df, x=column, title=f"Distribution of {column}")
+
+class HeatmapTool(BaseTool):
+    @property
+    def name(self): return "heatmap"
+    @property
+    def description(self): return "Correlation heatmap"
+    def execute(self, df, params):
+        corr = df.select_dtypes(include=np.number).corr()
+        return px.imshow(corr, text_auto=True, title="Correlation Matrix")
+
+class BarChartTool(BaseTool):
+    @property
+    def name(self): return "bar_chart"
+    @property
+    def description(self): return "Category vs Numeric Analysis"
+    def execute(self, df, params):
+        cat = params["category"]
+        num = params["value"]
+        grouped = df.groupby(cat)[num].sum().reset_index()
+        return px.bar(grouped, x=cat, y=num, title=f"{num} by {cat}")
+
+TOOL_REGISTRY = {
+    "histogram": HistogramTool(),
+    "heatmap": HeatmapTool(),
+    "bar_chart": BarChartTool()
+}
+
+# Agent Node Functions
+def profiling_agent(state):
     state["profile"] = profile_dataset(state["dataframe"])
-    state["insight"] = llm.invoke("Provide 5 professional insights for this dataset: " + str(state["profile"])).content
     return state
 
-def chat_agent(state):
+def tool_planner_agent(state):
+    profile = state["profile"]
+    available_tools = [{"name": t.name, "description": t.description} for t in TOOL_REGISTRY.values()]
+    prompt = f"You are an expert Data Analyst. Select tools.\nProfile: {profile}\nTools: {available_tools}\nReturn ONLY valid JSON format like: {{\"tools\":[{{\"name\":\"histogram\",\"params\": {{\"column\":\"Sales_Amount\"}}}}]}}"
+    
+    response = llm.invoke(prompt)
+    
+    # Clean JSON format and parse
+    try:
+        content = response.content.replace("```json", "").replace("```", "").strip()
+        state["tool_decision"] = json.loads(content)
+    except Exception as e:
+        state["tool_decision"] = {"tools":[]}
+        state.setdefault("errors", []).append(f"JSON Error: {str(e)}")
+        
+    return state
+
+def robust_tool_executor(state):
     df = state["dataframe"]
-    q = state["user_question"]
-    ans = llm.invoke(f"Based on this data: {df.head().to_string()}. Answer this: {q}").content
-    state["answer"] = ans
+    decisions = state.get("tool_decision", {})
+    generated_charts = []
+    
+    if decisions and "tools" in decisions:
+        for tool_info in decisions["tools"]:
+            try:
+                tool_name = tool_info["name"]
+                params = tool_info.get("params", {})
+                if tool_name in TOOL_REGISTRY:
+                    fig = TOOL_REGISTRY[tool_name].execute(df, params)
+                    generated_charts.append(fig)
+            except Exception as e:
+                pass
+                
+    state["charts"] = generated_charts
     return state
 
-# Graphs
-analysis_workflow = StateGraph(AgentState).add_node("a", analysis_agent).set_entry_point("a").add_edge("a", END).compile()
-chat_workflow = StateGraph(AgentState).add_node("c", chat_agent).set_entry_point("c").add_edge("c", END).compile()
+def insight_agent(state):
+    prompt = f"You are a Senior Business Analyst.\nProfile: {state['profile']}\nCharts Generated: {len(state['charts'])}\nGenerate a professional report covering: 1. Executive Summary 2. Data Quality 3. Key Insights 4. Business Risks 5. Recommendations."
+    response = llm.invoke(prompt)
+    state["insight"] = response.content
+    return state
 
+# Compile LangGraph Workflows
+analysis_graph = StateGraph(AgentState)
+analysis_graph.add_node("profiling", profiling_agent)
+analysis_graph.add_node("planner", tool_planner_agent)
+analysis_graph.add_node("executor", robust_tool_executor)
+analysis_graph.add_node("insight", insight_agent)
+
+analysis_graph.set_entry_point("profiling")
+analysis_graph.add_edge("profiling", "planner")
+analysis_graph.add_edge("planner", "executor")
+analysis_graph.add_edge("executor", "insight")
+analysis_graph.add_edge("insight", END)
+analysis_workflow = analysis_graph.compile()
+
+# Master Agent Class
 class UniversalAIAgent:
-    def analyze(self, state): return analysis_workflow.invoke(state)
-    def chat_with_data(self, state): return chat_workflow.invoke(state)
+    def analyze(self, state):
+        return analysis_workflow.invoke(state)
 
+# Initialize Agent
 agent = UniversalAIAgent()
 
-# 3. FRONTEND UI
-st.set_page_config(page_title="Universal AI Agent", layout="wide")
-page = st.sidebar.radio("Navigation", ["Home", "Dataset Preview", "AI Analysis", "Chat with Dataset", "Download Report"])
-uploaded_file = st.sidebar.file_uploader("Upload CSV", type=["csv"])
-df = pd.read_csv(uploaded_file) if uploaded_file else None
 
-if page == "Home": st.header("🏠 Welcome")
-elif page == "Dataset Preview" and df is not None: st.dataframe(df)
-elif page == "AI Analysis" and df is not None:
-    if st.button("Run AI Analysis"):
-        res = agent.analyze({"dataframe": df, "profile": {}, "charts": [], "insight": "", "answer": "", "user_question": ""})
-        st.write(res["insight"])
-        st.session_state["analysis_result"] = res
-elif page == "Chat with Dataset" and df is not None:
-    prompt = st.chat_input("Ask something...")
-    if prompt:
-        res = agent.chat_with_data({"dataframe": df, "user_question": prompt, "answer": "", "profile": {}, "charts": [], "insight": ""})
-        st.write(res["answer"])
-elif page == "Download Report" and "analysis_result" in st.session_state:
-    st.download_button("Download Report", data=st.session_state["analysis_result"]["insight"], file_name="report.txt")
+# ==========================================
+# 2. STREAMLIT FRONTEND UI
+# ==========================================
+
+st.set_page_config(
+    page_title="Universal AI Data Analyst Agent",
+    page_icon="🤖",
+    layout="wide"
+)
+
+st.markdown("""
+<style>
+.main{
+    background-color:#0E1117;
+}
+.block-container{
+    padding-top:1rem;
+}
+h1,h2,h3{
+    color:white;
+}
+.stButton>button{
+    width:100%;
+    border-radius:10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🤖 Universal AI Data Analyst Agent")
+st.write("Welcome to the Universal AI Data Analyst Agent. Upload any CSV, Excel, or JSON dataset and analyze it.")
+
+# Sidebar Navigation
+st.sidebar.title("Navigation")
+page = st.sidebar.radio(
+    "Select Module",
+    [
+        "Home",
+        "Dataset Preview",
+        "Profiling",
+        "Visualization",
+        "AI Analysis",
+        "Chat with Dataset",
+        "Download Report"
+    ]
+)
+
+uploaded_file = st.sidebar.file_uploader(
+    "Upload Dataset",
+    type=["csv","xlsx","json"]
+)
+
+# Dataset Loader
+df = None
+if uploaded_file is not None:
+    try:
+        if uploaded_file.name.endswith(".csv"):
+            df = pd.read_csv(uploaded_file)
+        elif uploaded_file.name.endswith(".xlsx"):
+            df = pd.read_excel(uploaded_file)
+        elif uploaded_file.name.endswith(".json"):
+            df = pd.read_json(uploaded_file)
+        st.sidebar.success("Dataset Loaded Successfully")
+    except Exception as e:
+        st.sidebar.error(str(e))
+
+
+# ---------------- Home ----------------
+if page == "Home":
+    st.header("🏠 Home")
+    st.info("""
+Features
+✅ Upload Dataset
+✅ Dataset Preview
+✅ Profiling
+✅ Visualization
+✅ AI Analysis
+✅ Chat with Dataset
+✅ Report Generation
+""")
+
+
+# ---------------- Dataset Preview ----------------
+elif page == "Dataset Preview":
+    if df is None:
+        st.warning("Please Upload Dataset First")
+    else:
+        st.header("📊 Dataset Preview")
+        st.dataframe(df, use_container_width=True)
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Rows", df.shape[0])
+        col2.metric("Columns", df.shape[1])
+        col3.metric("Missing Values", int(df.isnull().sum().sum()))
+        
+        st.divider()
+        st.subheader("Column Types")
+        st.dataframe(
+            pd.DataFrame({
+                "Column": df.columns,
+                "Datatype": df.dtypes.astype(str)
+            }),
+            use_container_width=True
+        )
+        
+        st.divider()
+        st.subheader("Missing Values")
+        missing = pd.DataFrame({
+            "Column": df.columns,
+            "Missing": df.isnull().sum()
+        })
+        st.dataframe(missing, use_container_width=True)
+        
+        st.divider()
+        st.subheader("Descriptive Statistics")
+        st.dataframe(df.describe(include="all"), use_container_width=True)
+
+
+# ---------------- Profiling ----------------
+elif page == "Profiling":
+    if df is None:
+        st.warning("Please upload a dataset.")
+    else:
+        st.header("Dataset Profiling")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Rows", df.shape[0])
+        c2.metric("Columns", df.shape[1])
+        c3.metric("Missing", int(df.isnull().sum().sum()))
+        c4.metric("Duplicates", int(df.duplicated().sum()))
+        
+        st.subheader("Data Types")
+        st.dataframe(pd.DataFrame({"Column": df.columns, "Type": df.dtypes.astype(str)}), use_container_width=True)
+        
+        st.subheader("Missing Values")
+        st.dataframe(df.isnull().sum().reset_index().rename(columns={"index": "Column", 0: "Missing"}), use_container_width=True)
+        
+        st.subheader("Statistics")
+        st.dataframe(df.describe(include="all"), use_container_width=True)
+
+
+# ---------------- Visualization ----------------
+elif page == "Visualization":
+    if df is None:
+        st.warning("Please upload a dataset first.")
+    else:
+        st.header("📉 Data Visualization")
+        numeric_columns = df.select_dtypes(include=np.number).columns.tolist()
+        categorical_columns = df.select_dtypes(include=["object","category"]).columns.tolist()
+
+        chart_type = st.selectbox(
+            "Select Chart",
+            ["Histogram", "Line Chart", "Bar Chart", "Scatter Plot", "Box Plot", "Pie Chart"]
+        )
+
+        if chart_type == "Histogram":
+            if numeric_columns:
+                col = st.selectbox("Select Numeric Column", numeric_columns)
+                st.bar_chart(df[col].value_counts().sort_index())
+            else:
+                st.warning("No numeric columns found.")
+
+        elif chart_type == "Line Chart":
+            if numeric_columns:
+                col = st.selectbox("Select Numeric Column", numeric_columns, key="line")
+                st.line_chart(df[col])
+            else:
+                st.warning("No numeric columns found.")
+
+        elif chart_type == "Bar Chart":
+            if categorical_columns and numeric_columns:
+                x = st.selectbox("Category Column", categorical_columns)
+                y = st.selectbox("Value Column", numeric_columns)
+                chart_df = df.groupby(x)[y].sum()
+                st.bar_chart(chart_df)
+            else:
+                st.warning("Suitable columns not found.")
+
+        elif chart_type == "Scatter Plot":
+            if len(numeric_columns) >= 2:
+                x = st.selectbox("X Axis", numeric_columns, key="x")
+                y = st.selectbox("Y Axis", numeric_columns, key="y")
+                st.scatter_chart(df[[x, y]])
+            else:
+                st.warning("At least two numeric columns are required.")
+
+        elif chart_type == "Box Plot":
+            if numeric_columns:
+                col = st.selectbox("Select Numeric Column", numeric_columns, key="box")
+                st.write(df[col].describe())
+            else:
+                st.warning("No numeric columns found.")
+
+        elif chart_type == "Pie Chart":
+            if categorical_columns:
+                col = st.selectbox("Select Category Column", categorical_columns, key="pie")
+                st.write(df[col].value_counts())
+            else:
+                st.warning("No categorical columns found.")
+
+
+# ---------------- AI Analysis ----------------
+elif page == "AI Analysis":
+    st.header("🤖 AI Dataset Analysis")
+
+    if df is None:
+        st.warning("Please upload a dataset first.")
+    else:
+        st.success("Dataset loaded successfully.")
+
+        if st.button("Run AI Analysis"):
+            with st.spinner("Analyzing dataset... Please wait."):
+                try:
+                    # Setup initial state for AI analysis
+                    state = {
+                        "dataframe": df,
+                        "profile": {},
+                        "charts": [],
+                        "query_plan": {},
+                        "query_result": "",
+                        "tool_decision": {},
+                        "insight": "",
+                        "answer": "",
+                        "errors": [],
+                        "memory": [],
+                        "user_question": "Analyze this dataset."
+                    }
+
+                    # Trigger AI Agent
+                    result = agent.analyze(state)
+                    
+                    # Store result in session state
+                    st.session_state["analysis_result"] = result
+
+                    st.success("Analysis Completed")
+                    
+                    st.subheader("Dataset Summary")
+                    summary = pd.DataFrame({
+                        "Property": ["Rows", "Columns", "Missing Values", "Duplicate Rows"],
+                        "Value": [df.shape[0], df.shape[1], df.isnull().sum().sum(), df.duplicated().sum()]
+                    })
+                    st.table(summary)
+
+                    st.subheader("Dataset Profile")
+                    profile_df = pd.DataFrame({
+                        "Column": df.columns,
+                        "Data Type": df.dtypes.astype(str),
+                        "Missing": df.isnull().sum().values,
+                        "Unique": df.nunique().values
+                    })
+                    st.dataframe(profile_df, use_container_width=True)
+
+                    st.subheader("Generated Charts")
+                    charts = result.get("charts", [])
+                    if charts:
+                        for chart in charts:
+                            try:
+                                st.plotly_chart(chart, use_container_width=True)
+                            except Exception:
+                                pass
+                    else:
+                        st.info("No charts were generated by the AI for this specific dataset.")
+
+                    st.subheader("AI Business Insights")
+                    st.markdown(result.get("insight", "No insights generated."))
+
+                except Exception as e:
+                    st.error(f"Analysis failed due to an error: {e}")
+
+
+# ---------------- Chat with Dataset ----------------
+elif page == "Chat with Dataset":
+    st.header("💬 Chat with Dataset")
+    if df is None:
+        st.warning("Please upload a dataset first.")
+    else:
+        # Session state me chat history initialize karein
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
+        # Purani messages display karein
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        # User input handle karein
+        prompt = st.chat_input("Ask anything about your dataset")
+        if prompt:
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    try:
+                        # Chat state prepare karein
+                        chat_state = {
+                            "dataframe": df,
+                            "profile": st.session_state.get("analysis_result", {}).get("profile", {}),
+                            "user_question": prompt,
+                            "answer": "",
+                            "query_plan": {},
+                            "query_result": "",
+                            "charts": [],
+                            "tool_decision": {}
+                        }
+                        # Chat workflow invoke karein
+                        result = agent.chat_with_data(chat_state)
+                        answer = result.get("answer", "No answer generated.")
+                    except Exception as e:
+                        answer = f"Error: {str(e)}"
+                    
+                    st.markdown(answer)
+            
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+
+# ---------------- Download Report ----------------
+elif page == "Download Report":
+    st.header("📄 Download Report")
+    
+    if "analysis_result" not in st.session_state:
+        st.warning("⚠️ Pehle 'AI Analysis' module me jaakar Analysis run karein.")
+    else:
+        st.success("✅ Report ready hai!")
+        
+        # Result ko readable string me convert karein
+        res = st.session_state["analysis_result"]
+        report_content = f"--- AI Analysis Report ---\n\nInsights:\n{res.get('insight', 'No insights')}"
+        
+        st.download_button(
+            label="📥 Download AI Analysis Report",
+            data=report_content,
+            file_name="AI_Analysis_Report.txt",
+            mime="text/plain"
+        )
