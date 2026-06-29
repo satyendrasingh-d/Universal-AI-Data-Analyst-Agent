@@ -7,7 +7,7 @@ An AI-powered Data Analysis application built with Python, Streamlit, LangGraph,
 This project demonstrates how modern AI agents can automate data analysis workflows and make data exploration accessible without requiring advanced programming knowledge.
 
 🚀 Features
-** Upload CSV, Excel, and JSON datasets**
+Upload CSV, Excel, and JSON datasets
 
 Interactive dataset preview
 
