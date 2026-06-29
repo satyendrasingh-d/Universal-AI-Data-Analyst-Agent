@@ -201,8 +201,6 @@ elif page=="Visualization":
                 st.write(df[col].value_counts())
             else:
                 st.warning("No categorical columns found.")
-    st.header("🤖 AI Analysis")
-    st.info("Part 2 me LangGraph + Groq Analysis connect karenge.")
 elif page=="Chat with Dataset":
     st.header("💬 Chat with Dataset")
     st.info("Part 3 me AI Chat connect karenge.")
