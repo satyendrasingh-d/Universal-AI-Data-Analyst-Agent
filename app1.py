@@ -439,10 +439,65 @@ elif page == "AI Analysis":
 # ---------------- Chat with Dataset ----------------
 elif page == "Chat with Dataset":
     st.header("💬 Chat with Dataset")
-    st.info("Part 3 me AI Chat connect karenge.")
+    if df is None:
+        st.warning("Please upload a dataset first.")
+    else:
+        # Session state me chat history initialize karein
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
 
+        # Purani messages display karein
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        # User input handle karein
+        prompt = st.chat_input("Ask anything about your dataset")
+        if prompt:
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    try:
+                        # Chat state prepare karein
+                        chat_state = {
+                            "dataframe": df,
+                            "profile": st.session_state.get("analysis_result", {}).get("profile", {}),
+                            "user_question": prompt,
+                            "answer": "",
+                            "query_plan": {},
+                            "query_result": "",
+                            "charts": [],
+                            "tool_decision": {}
+                        }
+                        # Chat workflow invoke karein
+                        result = agent.chat_with_data(chat_state)
+                        answer = result.get("answer", "No answer generated.")
+                    except Exception as e:
+                        answer = f"Error: {str(e)}"
+                    
+                    st.markdown(answer)
+            
+            st.session_state.messages.append({"role": "assistant", "content": answer})
 
 # ---------------- Download Report ----------------
 elif page == "Download Report":
     st.header("📄 Download Report")
-    st.info("Part 3 me PDF Report connect karenge.")
+    
+    if "analysis_result" not in st.session_state:
+        st.warning("⚠️ Pehle 'AI Analysis' module me jaakar Analysis run karein.")
+    else:
+        st.success("✅ Report ready hai!")
+        
+        # Result ko readable string me convert karein
+        res = st.session_state["analysis_result"]
+        report_content = f"--- AI Analysis Report ---\n\nInsights:\n{res.get('insight', 'No insights')}"
+        
+        st.download_button(
+            label="📥 Download AI Analysis Report",
+            data=report_content,
+            file_name="AI_Analysis_Report.txt",
+            mime="text/plain"
+        )
