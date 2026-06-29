@@ -9,7 +9,7 @@ from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 from abc import ABC, abstractmethod
 
-# Set API Key directly for testing (Use environment variables for production)
+# Set API Key directly for testing
 os.environ["GROQ_API_KEY"] = "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"
 
 # Initialize LLM
@@ -110,7 +110,7 @@ def tool_planner_agent(state):
     
     response = llm.invoke(prompt)
     
-    # Fix for JSON Decode Error
+    # Clean JSON format and parse
     try:
         content = response.content.replace("```json", "").replace("```", "").strip()
         state["tool_decision"] = json.loads(content)
@@ -233,12 +233,141 @@ if uploaded_file is not None:
     except Exception as e:
         st.sidebar.error(str(e))
 
-# Page: Home
+
+# ---------------- Home ----------------
 if page == "Home":
     st.header("🏠 Home")
-    st.info("Features:\n✅ Upload Dataset\n✅ Dataset Preview\n✅ Profiling\n✅ Visualization\n✅ AI Analysis\n✅ Chat with Dataset\n✅ Report Generation")
+    st.info("""
+Features
+✅ Upload Dataset
+✅ Dataset Preview
+✅ Profiling
+✅ Visualization
+✅ AI Analysis
+✅ Chat with Dataset
+✅ Report Generation
+""")
 
-# Page: AI Analysis (Focus based on your screenshot)
+
+# ---------------- Dataset Preview ----------------
+elif page == "Dataset Preview":
+    if df is None:
+        st.warning("Please Upload Dataset First")
+    else:
+        st.header("📊 Dataset Preview")
+        st.dataframe(df, use_container_width=True)
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Rows", df.shape[0])
+        col2.metric("Columns", df.shape[1])
+        col3.metric("Missing Values", int(df.isnull().sum().sum()))
+        
+        st.divider()
+        st.subheader("Column Types")
+        st.dataframe(
+            pd.DataFrame({
+                "Column": df.columns,
+                "Datatype": df.dtypes.astype(str)
+            }),
+            use_container_width=True
+        )
+        
+        st.divider()
+        st.subheader("Missing Values")
+        missing = pd.DataFrame({
+            "Column": df.columns,
+            "Missing": df.isnull().sum()
+        })
+        st.dataframe(missing, use_container_width=True)
+        
+        st.divider()
+        st.subheader("Descriptive Statistics")
+        st.dataframe(df.describe(include="all"), use_container_width=True)
+
+
+# ---------------- Profiling ----------------
+elif page == "Profiling":
+    if df is None:
+        st.warning("Please upload a dataset.")
+    else:
+        st.header("Dataset Profiling")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Rows", df.shape[0])
+        c2.metric("Columns", df.shape[1])
+        c3.metric("Missing", int(df.isnull().sum().sum()))
+        c4.metric("Duplicates", int(df.duplicated().sum()))
+        
+        st.subheader("Data Types")
+        st.dataframe(pd.DataFrame({"Column": df.columns, "Type": df.dtypes.astype(str)}), use_container_width=True)
+        
+        st.subheader("Missing Values")
+        st.dataframe(df.isnull().sum().reset_index().rename(columns={"index": "Column", 0: "Missing"}), use_container_width=True)
+        
+        st.subheader("Statistics")
+        st.dataframe(df.describe(include="all"), use_container_width=True)
+
+
+# ---------------- Visualization ----------------
+elif page == "Visualization":
+    if df is None:
+        st.warning("Please upload a dataset first.")
+    else:
+        st.header("📉 Data Visualization")
+        numeric_columns = df.select_dtypes(include=np.number).columns.tolist()
+        categorical_columns = df.select_dtypes(include=["object","category"]).columns.tolist()
+
+        chart_type = st.selectbox(
+            "Select Chart",
+            ["Histogram", "Line Chart", "Bar Chart", "Scatter Plot", "Box Plot", "Pie Chart"]
+        )
+
+        if chart_type == "Histogram":
+            if numeric_columns:
+                col = st.selectbox("Select Numeric Column", numeric_columns)
+                st.bar_chart(df[col].value_counts().sort_index())
+            else:
+                st.warning("No numeric columns found.")
+
+        elif chart_type == "Line Chart":
+            if numeric_columns:
+                col = st.selectbox("Select Numeric Column", numeric_columns, key="line")
+                st.line_chart(df[col])
+            else:
+                st.warning("No numeric columns found.")
+
+        elif chart_type == "Bar Chart":
+            if categorical_columns and numeric_columns:
+                x = st.selectbox("Category Column", categorical_columns)
+                y = st.selectbox("Value Column", numeric_columns)
+                chart_df = df.groupby(x)[y].sum()
+                st.bar_chart(chart_df)
+            else:
+                st.warning("Suitable columns not found.")
+
+        elif chart_type == "Scatter Plot":
+            if len(numeric_columns) >= 2:
+                x = st.selectbox("X Axis", numeric_columns, key="x")
+                y = st.selectbox("Y Axis", numeric_columns, key="y")
+                st.scatter_chart(df[[x, y]])
+            else:
+                st.warning("At least two numeric columns are required.")
+
+        elif chart_type == "Box Plot":
+            if numeric_columns:
+                col = st.selectbox("Select Numeric Column", numeric_columns, key="box")
+                st.write(df[col].describe())
+            else:
+                st.warning("No numeric columns found.")
+
+        elif chart_type == "Pie Chart":
+            if categorical_columns:
+                col = st.selectbox("Select Category Column", categorical_columns, key="pie")
+                st.write(df[col].value_counts())
+            else:
+                st.warning("No categorical columns found.")
+
+
+# ---------------- AI Analysis ----------------
 elif page == "AI Analysis":
     st.header("🤖 AI Dataset Analysis")
 
@@ -250,7 +379,7 @@ elif page == "AI Analysis":
         if st.button("Run AI Analysis"):
             with st.spinner("Analyzing dataset... Please wait."):
                 try:
-                    # Setup initial state
+                    # Setup initial state for AI analysis
                     state = {
                         "dataframe": df,
                         "profile": {},
@@ -268,12 +397,11 @@ elif page == "AI Analysis":
                     # Trigger AI Agent
                     result = agent.analyze(state)
                     
-                    # Store result in session state for later use
+                    # Store result in session state
                     st.session_state["analysis_result"] = result
 
                     st.success("Analysis Completed")
                     
-                    # Display Dataset Summary Table exactly like your screenshot
                     st.subheader("Dataset Summary")
                     summary = pd.DataFrame({
                         "Property": ["Rows", "Columns", "Missing Values", "Duplicate Rows"],
@@ -281,7 +409,6 @@ elif page == "AI Analysis":
                     })
                     st.table(summary)
 
-                    # Display Detailed Profile Dataframe
                     st.subheader("Dataset Profile")
                     profile_df = pd.DataFrame({
                         "Column": df.columns,
@@ -291,27 +418,31 @@ elif page == "AI Analysis":
                     })
                     st.dataframe(profile_df, use_container_width=True)
 
-                    # Display Generated Charts using Plotly
                     st.subheader("Generated Charts")
                     charts = result.get("charts", [])
                     if charts:
                         for chart in charts:
                             try:
-                                # Plotly charts rendering
                                 st.plotly_chart(chart, use_container_width=True)
                             except Exception:
                                 pass
                     else:
                         st.info("No charts were generated by the AI for this specific dataset.")
 
-                    # Display AI Insights
                     st.subheader("AI Business Insights")
                     st.markdown(result.get("insight", "No insights generated."))
 
                 except Exception as e:
                     st.error(f"Analysis failed due to an error: {e}")
 
-# Page: Placeholder for others to prevent errors
-elif page in ["Dataset Preview", "Profiling", "Visualization", "Chat with Dataset", "Download Report"]:
-    st.header(page)
-    st.info(f"{page} module is under development or requires you to upload data first.")
+
+# ---------------- Chat with Dataset ----------------
+elif page == "Chat with Dataset":
+    st.header("💬 Chat with Dataset")
+    st.info("Part 3 me AI Chat connect karenge.")
+
+
+# ---------------- Download Report ----------------
+elif page == "Download Report":
+    st.header("📄 Download Report")
+    st.info("Part 3 me PDF Report connect karenge.")
